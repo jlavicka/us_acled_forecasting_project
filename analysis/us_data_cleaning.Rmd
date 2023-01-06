@@ -1,0 +1,247 @@
+---
+title: "U.S. Data Cleaning"
+author: "Joseph Lavicka"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+# packages 
+
+```{r}
+library(tidyverse)
+```
+
+# read in datasets
+
+## clean ACLED dataset
+
+```{r}
+
+acled <- read_csv("../data/acled_us/2012-01-01-2022-11-30-United_States.csv")
+
+acled %>% 
+  select(event_date, year, event_type, sub_event_type, admin1, admin2, fatalities) %>% 
+  mutate(month = str_replace(event_date, "^\\d*\\s", ""),
+         month = factor(str_replace(month, "\\s\\d*$", ""), levels = month.name),
+         year = as_factor(year),
+         admin1 = factor(admin1, ordered = is.ordered(admin1))) %>% 
+  select(month, year, event_date, event_type, sub_event_type, admin1, admin2, fatalities) %>% 
+  group_by(year, month, admin1, admin2) %>% 
+  summarise(n = n()) %>% 
+  arrange(year, month, admin1) -> acled
+```
+
+## clean county dataset and merge with time dataset
+
+```{r}
+
+counties <- read_csv("../data/georef-united-states-of-america-county.csv")
+
+counties %>% 
+  filter(`Iso 3166-3 Area Code` == "USA") %>% 
+  select(`Official Code County`, `Official Code State`, `Official Name State`, `County FIPS Code`, `Official Name County`) %>% 
+  add_column(n = NA) %>% 
+  rename("admin2" = `Official Name County`, "admin1" = `Official Name State`) %>% 
+  select(`Official Code County`, admin1, admin2, n) %>%
+  rename("FIPS_code" = `Official Code County`) %>% 
+  arrange(admin1, admin2) -> county
+
+counties <- as.data.frame(sapply(county, rep.int, times = 35))
+
+counties %>% 
+  mutate(admin1 = as_factor(admin1),
+         FIPS_code = as_factor(FIPS_code)) %>% 
+  arrange(admin1, admin2) -> counties
+
+year <- c(rep("2020", 12), rep("2021", 12), rep("2022", 12))
+month <- c(rep(month.name, 3))
+
+time <- data_frame(year, month)
+
+time <-time[-36,]
+
+time <- as.data.frame(sapply(time, rep.int, times = nrow(county)))
+
+rm(county)
+
+time %>% 
+  mutate(year = as_factor(year),
+         month = as_factor(month),
+         month_abv = as_factor(str_extract(month, "^\\w{3}"))) -> time
+
+cbind(time, counties) -> county_time
+
+rm(counties, time, month, year)
+```
+
+## merge acled and county/time data
+
+```{r}
+
+left_join(county_time, acled, by = c("year", "month", "admin1", "admin2")) -> final
+
+final %>% 
+  select(year, month, month_abv, FIPS_code, admin1, admin2, n.y) %>% 
+  rename("n" = n.y) %>% 
+  replace(is.na(.), 0) %>% 
+  arrange(year, month, month_abv, admin1, admin2)-> cleaned_final
+
+rm(county_time, final, acled)
+```
+
+## read in and merge education data
+
+```{r}
+
+edu <- read_csv("../data/Education.csv")
+
+edu %>% 
+  mutate(admin1_abv = factor(State),
+         admin2_full = factor(`Area name`),
+         FIPS_code = factor(as.numeric(`Federal Information Processing Standard (FIPS) Code`))) %>% 
+  filter(admin1_abv != "US" & admin1_abv != "PR") %>% 
+  select(56:58,52:54) -> edu
+
+edu <- edu[-str_which(edu$FIPS_code, "000$"),]
+
+
+left_join(cleaned_final, edu, by = "FIPS_code") %>% 
+  mutate(n_bool = factor(ifelse(n == 0, 0, 1))) %>%
+  rename(less_than_hs = `Percent of adults with less than a high school diploma, 2016-20`, hs_diploma = `Percent of adults with a high school diploma only, 2016-20`, some_college = `Percent of adults completing some college or associate's degree, 2016-20`) %>% 
+  relocate(year, month, month_abv, FIPS_code, admin1, admin1_abv, admin2, admin2_full, n, n_bool) -> final
+
+rm(edu, cleaned_final)
+```
+
+## create and merge election and region data
+
+```{r}
+
+fct_drop(final$admin1_abv, only = c("PR", "US")) -> final$admin1_abv 
+
+final %>% 
+  mutate(region = fct_collapse(admin1_abv, `New England` = c("CT", "ME", "MA", "NH", "RI", "VT"), `Middle Atlantic` = c("NJ", "NY", "PA"), `East North Central` = c("IN", "IL", "MI", "OH", "WI"), `West North Central` = c("IA", "KS", "MN", "MO", "NE", "ND", "SD"), `South Atlantic` = c("DE", "DC", "FL", "GA", "MD", "NC", "SC", "VA", "WV"), `East South Central` = c("AL", "KY", "MS", "TN"), `West South Central` = c("AR", "LA", "OK", "TX"), `Mountain` = c("AZ", "CO", "ID", "NM", "MT", "UT", "NV", "WY"), `Pacific` = c("AK", "CA", "HI", "OR", "WA"))) %>% 
+  relocate(1:3, region) -> final
+
+final %>% 
+  mutate(pres_election = ifelse(year == "2020" & month == "November", 1, 0),
+         mid_election = ifelse(year =="2022" & month == "November", 1, 0)) -> final
+```
+
+## read in and merge population data
+
+```{r}
+
+pop <- read_csv("../data/PopulationEstimates.csv")
+
+pop <- pop[-str_which(pop$`Federal Information Processing Standards (FIPS) Code`, "000$"),]
+
+pop %>% 
+  mutate(`Population 2022` = `Population 2021`) %>% 
+  pivot_longer(5:10, names_to = "year", names_prefix = "Population ", values_to = "pop") %>% 
+  mutate(FIPS_code = factor(as.numeric(`Federal Information Processing Standards (FIPS) Code`)),
+         year = factor(year)) %>% 
+  select(FIPS_code, year, pop) %>% 
+  filter(year == "2020" | year == "2021" | year == "2022") %>% 
+  left_join(x = final, by = c("FIPS_code", "year")) %>% 
+  relocate(1:11, pop) -> final
+
+rm(pop)
+```
+
+## read in and merge unemployment data
+
+```{r}
+
+unemp <- read_csv("../data/Unemployment.csv", skip = 4)
+
+unemp <- unemp[-str_which(unemp$FIPS_code, "000$"),] 
+
+unemp %>% 
+  select(FIPS_code, 90,94) %>% 
+  mutate(Unemployment_rate_2022 = Unemployment_rate_2021) %>% 
+  pivot_longer(2:4, names_to = "year", names_prefix = "Unemployment_rate_", values_to = "unemp_rate") %>% 
+  mutate(FIPS_code = factor(as.numeric(FIPS_code)),
+         year = factor(year)) %>% 
+  left_join(x = final, by = c("FIPS_code", "year")) -> final
+
+rm(unemp)
+```
+
+## read in and merge poverty data
+
+```{r}
+
+pov <- read_csv("../data/PovertyEstimates.csv", skip = 4)
+
+pov <-pov[-str_which(pov$FIPS_code, "000$"),]
+
+pov %>% 
+  select(FIPS_code, PCTPOVALL_2020, PCTPOV017_2020, MEDHHINC_2020) %>% 
+  mutate(FIPS_code = factor(as.numeric(FIPS_code)),
+         PCTPOVALL_2021 = PCTPOVALL_2020,
+         PCTPOVALL_2022 = PCTPOVALL_2020,
+         PCTPOV017_2021 = PCTPOV017_2020,
+         PCTPOV017_2022 = PCTPOV017_2020,
+         MEDHHINC_2021 = MEDHHINC_2020,
+         MEDHHINC_2022 = MEDHHINC_2020) %>% 
+  pivot_longer(2:10, names_to = c(".value", "year"), names_pattern = "(\\w*)(\\d{4})") %>% 
+  mutate(year = factor(year)) %>% 
+  left_join(x = final, by = c("FIPS_code", "year")) -> final
+
+rm(pov)
+```
+
+## read in and merge inflation data
+
+```{r}
+
+total_files <- list.files("../data/inflation/total")
+
+for(i in 1:length(total_files)) {                            
+  assign(paste0("df", i),                              
+         readxl::read_xlsx(paste0("../data/inflation/total/",
+                   total_files[i]), skip = 11))
+}
+
+bind_rows(df1,df2,df3,df4,df5,df6,df7,df8,df9) -> infl
+
+food_files <- list.files("../data/inflation/food")
+
+for(i in 1:length(food_files)) {                            
+  assign(paste0("df", i),                               
+         readxl::read_xlsx(paste0("../data/inflation/food/",
+                   food_files[i]), skip = 11))
+}
+
+bind_rows(infl,df1,df2,df3,df4,df5,df6,df7,df8,df9) -> infl
+
+rm(i,total_files,food_files,df1,df2,df3,df4,df5,df6,df7,df8,df9)
+
+infl %>% 
+  pivot_longer(2:13, names_to = "month_abv") %>% 
+  pivot_wider(1:3, names_from = "item") %>% 
+  rename(year = Year, infl_all = `All items`, infl_food = Food) %>% 
+  mutate(year = factor(year),
+         region = factor(region),
+         month_abv = factor(month_abv)) %>% 
+  left_join(x = final, by = c("region", "year", "month_abv")) -> final
+
+rm(infl)
+```
+
+## write out final .csv file
+
+```{r}
+
+write_csv(final, "../data/final.csv")
+```
+

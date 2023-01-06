@@ -1,0 +1,114 @@
+---
+title: "U.S. Exploratory Data Analysis"
+author: "Joseph Lavicka"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+# packages 
+
+```{r}
+library(tidyverse)
+```
+
+# explore ACLED dataset
+
+```{r}
+
+acled <- read_csv("../data/acled_us/2012-01-01-2022-11-30-United_States.csv")
+
+acled %>% 
+  group_by(event_type) %>% 
+  summarise(n = n()) %>% 
+  arrange(desc(n)) %>% 
+  ggplot(aes(x = reorder(event_type, -n), y = n)) +
+  geom_bar(stat = 'identity', fill = "black", color = "black", alpha = .5) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  xlab("Event Type") +
+  ylab("Log of Count") +
+  ggtitle("Count of Event Type") +
+  scale_y_log10()
+
+acled %>% 
+  group_by(sub_event_type) %>% 
+  summarise(n = n()) %>% 
+  arrange(desc(n)) %>% 
+  ggplot(aes(x = reorder(sub_event_type, -n), y = n)) +
+  geom_bar(stat = 'identity', fill = "black", color = "black", alpha = .5) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  xlab("Sub-Event Type") +
+  ylab("Log of Count") +
+  ggtitle("Count of Sub-Event Type") +
+  scale_y_log10()
+
+acled %>% 
+  group_by(admin1) %>% 
+  summarise(n = n()) %>% 
+  arrange(desc(n)) %>% 
+  ggplot(aes(x = reorder(admin1, -n), y = n)) +
+  geom_bar(stat = 'identity', fill = "black", color = "black", alpha = .5) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  xlab("State") +
+  ylab("Count") +
+  ggtitle("Count of Events by State")
+
+acled %>% 
+  group_by(fatalities) %>% 
+  summarise(n = n()) %>% 
+  arrange(fatalities) %>% 
+  ggplot(aes(y = n, x = fatalities)) +
+  geom_point() +
+  scale_y_log10() +
+  scale_x_log10() +
+  stat_smooth(method = lm, formula = (y ~ poly(x, 2)), se = FALSE) +
+  theme_bw() +
+  xlab("Log of Event Fatalities") +
+  ylab("Log of Count") +
+  ggtitle("Fatalities per Event")
+
+acled %>% 
+  select(event_date, event_type) %>% 
+  mutate(event_date = lubridate::dmy(event_date)) %>% 
+  group_by(date = lubridate::floor_date(event_date, 'month'), event_type) %>% 
+  summarise(n = n()) %>%   
+  ggplot(aes(x = date, y = n, color = event_type)) +
+  geom_point() +
+  geom_smooth(method = lm, se = FALSE) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_log10() +
+  scale_color_discrete(name = "Event Type") +
+  ylab("Count") +
+  xlab("Date")
+
+acled %>% 
+  group_by(admin1, admin2) %>% 
+  summarise(n = n()) %>% 
+  arrange(desc(n))
+```
+
+# explore final dataset
+
+```{r}
+final <- read_csv("../data/final.csv")
+
+dim(final)
+
+summary(final)
+
+str(final)
+
+sum(is.na(final))
+```
+

@@ -1,0 +1,73 @@
+---
+title: "U.S. Machine Learning Models"
+author: "Joseph Lavicka"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+# packages 
+
+```{r}
+library(tidyverse)
+```
+
+# basic models
+
+## tree
+
+```{r}
+ 
+library(tree)
+
+final %>%
+  select(1,2,4,10:ncol(final)) -> final_tree
+
+set.seed(42)
+train <- sample(1:nrow(final_tree), nrow(final_tree)/2)
+final.test <- final_tree[-train,]
+n.test <- final_tree$n_bool[-train]
+
+trees <- tree(n_bool ~ . -pop, final_tree, subset = train)
+
+tree.pred <- predict(trees, final.test, type = "class")
+
+table(tree.pred, n.test)
+
+summary(trees)
+
+```
+
+## randomForest
+
+```{r}
+library(randomForest)
+
+final %>%
+  select(1,2,4,10:ncol(final)) -> final_tree
+
+set.seed(42)
+
+train <- sample(1:nrow(final_tree), nrow(final_tree)/2)
+final.test <- final_tree[-train,]
+n.test <- final_tree$n_bool[-train]
+
+bag.acled <- randomForest(n_bool ~ ., data = final_tree, subset = train, mtry = 12, importance = TRUE)
+
+bag.acled
+
+trees <- tree(n_bool ~ ., final_tree, subset = train)
+tree.pred <- predict(trees, final.test, type = "class")
+
+table(tree.pred, n.test)
+
+summary(bag.acled)
+ 
+ ```
